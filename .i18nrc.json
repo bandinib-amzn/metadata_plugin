@@ -1,0 +1,7 @@
+{
+  "prefix": "metadataPlugin",
+  "paths": {
+    "metadataPlugin": "."
+  },
+  "translations": ["translations/ja-JP.json"]
+}
