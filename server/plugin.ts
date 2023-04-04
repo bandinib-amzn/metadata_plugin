@@ -1,3 +1,7 @@
+/*
+ * Copyright OpenSearch Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import {
   PluginInitializerContext,
   CoreSetup,
@@ -8,12 +12,10 @@ import {
   SavedObjectsErrorHelpers,
   SavedObjectsRepositoryFactory,
 } from '../../../src/core/server';
-
-import { MetadataPluginPluginSetup, MetadataPluginPluginStart } from './types';
+import { MetadataPluginSetup, MetadataPluginStart } from './types';
 import { defineRoutes } from './routes';
 
-export class MetadataPluginPlugin
-  implements Plugin<MetadataPluginPluginSetup, MetadataPluginPluginStart> {
+export class MetadataPlugin implements Plugin<MetadataPluginSetup, MetadataPluginStart> {
   private readonly logger: Logger;
 
   constructor(initializerContext: PluginInitializerContext) {

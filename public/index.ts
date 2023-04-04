@@ -1,10 +1,15 @@
+/*
+ * Copyright OpenSearch Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+import { PluginInitializerContext } from '../../../src/core/public';
 import './index.scss';
 
-import { MetadataPluginPlugin } from './plugin';
+import { MetadataPlugin } from './plugin';
 
 // This exports static code and TypeScript types,
 // as well as, OpenSearch Dashboards Platform `plugin()` initializer.
-export function plugin() {
-  return new MetadataPluginPlugin();
+export function plugin(initializerContext: PluginInitializerContext) {
+  return new MetadataPlugin(initializerContext);
 }
-export { MetadataPluginPluginSetup, MetadataPluginPluginStart } from './types';
+export { MetadataPluginSetup, MetadataPluginStart } from './types';

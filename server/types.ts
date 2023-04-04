@@ -1,4 +1,4 @@
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface MetadataPluginPluginSetup {}
+export interface MetadataPluginSetup {}
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface MetadataPluginPluginStart {}
+export interface MetadataPluginStart {}

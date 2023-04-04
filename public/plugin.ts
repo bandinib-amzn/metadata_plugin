@@ -1,15 +1,23 @@
+/*
+ * Copyright OpenSearch Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import { i18n } from '@osd/i18n';
-import { AppMountParameters, CoreSetup, CoreStart, Plugin } from '../../../src/core/public';
+import { AppMountParameters, CoreSetup, CoreStart, Plugin, PluginInitializerContext } from '../../../src/core/public';
 import {
-  MetadataPluginPluginSetup,
-  MetadataPluginPluginStart,
+  MetadataPluginSetup,
+  MetadataPluginStart,
   AppPluginStartDependencies,
 } from './types';
 import { PLUGIN_NAME } from '../common';
 
-export class MetadataPluginPlugin
-  implements Plugin<MetadataPluginPluginSetup, MetadataPluginPluginStart> {
-  public setup(core: CoreSetup): MetadataPluginPluginSetup {
+export class MetadataPlugin
+  implements Plugin<MetadataPluginSetup, MetadataPluginStart> {
+
+  constructor(private readonly initializerContext: PluginInitializerContext) {
+    // can retrieve config from initializerContext
+  }
+  public setup(core: CoreSetup): MetadataPluginSetup {
     // Register an application into the side navigation menu
     core.application.register({
       id: 'metadataPlugin',
@@ -37,7 +45,7 @@ export class MetadataPluginPlugin
     };
   }
 
-  public start(core: CoreStart): MetadataPluginPluginStart {
+  public start(core: CoreStart): MetadataPluginStart {
     return {};
   }
 
