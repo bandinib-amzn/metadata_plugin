@@ -3,17 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { i18n } from '@osd/i18n';
-import { AppMountParameters, CoreSetup, CoreStart, Plugin, PluginInitializerContext } from '../../../src/core/public';
 import {
-  MetadataPluginSetup,
-  MetadataPluginStart,
-  AppPluginStartDependencies,
-} from './types';
+  AppMountParameters,
+  CoreSetup,
+  CoreStart,
+  Plugin,
+  PluginInitializerContext,
+} from '../../../src/core/public';
+import { MetadataPluginSetup, MetadataPluginStart, AppPluginStartDependencies } from './types';
 import { PLUGIN_NAME } from '../common';
 
-export class MetadataPlugin
-  implements Plugin<MetadataPluginSetup, MetadataPluginStart> {
-
+export class MetadataPlugin implements Plugin<MetadataPluginSetup, MetadataPluginStart> {
   constructor(private readonly initializerContext: PluginInitializerContext) {
     // can retrieve config from initializerContext
   }
