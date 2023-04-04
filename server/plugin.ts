@@ -43,6 +43,10 @@ export class MetadataPlugin implements Plugin<MetadataPluginSetup, MetadataPlugi
 
   public start(core: CoreStart) {
     this.logger.info('metadata-plugin: Started');
+
+    this.savedObjectClientWrapper.typeRegistry = core.savedObjects.getTypeRegistry();
+    console.log(`this.savedObjectClientWrapper.typeRegistry : ${this.savedObjectClientWrapper.typeRegistry}`);
+    this.savedObjectClientWrapper.setup();
     return {};
   }
 
