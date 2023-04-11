@@ -36,6 +36,7 @@ import {
   SavedObjectsFindResult,
 } from "../../../src/core/server";
 import { IOpenSearchDashboardsMigrator } from 'src/core/server/saved_objects/migrations';
+import { MetaStorageConfigType } from '.';
 
 export const ALL_NAMESPACES_STRING = '*';
 
@@ -45,21 +46,17 @@ export class PostgresClientWrapper {
   private serializer: SavedObjectsSerializer;
   private allowedTypes: string[];
   private _migrator: IOpenSearchDashboardsMigrator;
+  public metaSrorageConfig?: MetaStorageConfigType;
+  
 
   constructor() {
-    this.initializeDBConnection();
-  }
-
-  private initializeDBConnection() {
-    const pg = require('pg');
-    const dbName = 'opensearch_dashboards';
-    // const connUrl = `postgres://${config.dbUserName}:${config.dbPassword}@${config.dbHostName}:${config.dbPort}`;
-    const connUrl = `postgres://${'postgres'}:${'Kibana123!'}@${'neo-postgres-demo.ctuks8gzcnbe.us-east-1.rds.amazonaws.com'}:${5432}`;
-    this.postgresClient = new pg.Client(`${connUrl}/${dbName}`);
-    this.postgresClient.connect();
   }
 
   public setup() {
+    const pg = require('pg');
+  	this.postgresClient = new pg.Pool(this.getMetaStorageInitConfig());
+    this.postgresClient.connect();
+
     this.serializer = new SavedObjectsSerializer(this.typeRegistry!);
 
     const allTypes = this.typeRegistry!.getAllTypes().map((t) => t.name);
@@ -70,6 +67,21 @@ export class PostgresClientWrapper {
     this.allowedTypes = [...new Set(visibleTypes.concat(includedHiddenTypes))];
 
     // ToDO: How to get migrator here.
+  }
+
+  private getMetaStorageInitConfig() {
+    const metaConfig = this.metaSrorageConfig!.config;
+    const configSchema = {
+      user: metaConfig.userName,
+      password: metaConfig.password,
+      database: metaConfig.database,
+      host: metaConfig.hostName,
+      port: metaConfig.port,
+      max: metaConfig.max,
+      idleTimeoutMillis: metaConfig.idleTimeoutMillis,
+    };
+  
+    return configSchema;
   }
 
   public wrapperFactory: SavedObjectsClientWrapperFactory = (wrapperOptions) => {
@@ -148,7 +160,7 @@ export class PostgresClientWrapper {
     const find = async <T = unknown>(
       options: SavedObjectsFindOptions
     ): Promise<SavedObjectsFindResponse<T>> => {
-      console.log(`Inside find`);
+      console.log(`Inside metadata plugin find`);
       const {
         search,
         searchFields,
