@@ -41,11 +41,11 @@ import {
 } from "src/core/server/types";
 import { MetaStorageConfigType } from ".";
 import { omit } from "lodash";
-import { SavedObjectRepositoryFactoryProvider, SavedObjectsRepositoryOptions } from "src/core/server/saved_objects/service/lib/scoped_client_provider";
 import { DecoratedError } from "src/core/server/saved_objects/service/lib/errors";
 import { SavedObjectsRawDocSource } from "src/core/server/saved_objects/serialization";
 import { Utils } from "./util";
 import { encodeHitVersion } from "../../../src/core/server/saved_objects/version";
+import { RepositoryOptions } from "./types";
 
 export const ALL_NAMESPACES_STRING = '*';
 export const FIND_DEFAULT_PAGE = 1;
@@ -59,42 +59,6 @@ type Either = Left | Right;
 const isLeft = (either: Either): either is Left => either.tag === 'Left';
 const isRight = (either: Either): either is Right => either.tag === 'Right';
 
-export interface PostgresRepositoryOptions {
-  typeRegistry: SavedObjectTypeRegistry;
-  serializer: SavedObjectsSerializer;
-  migrator: IOpenSearchDashboardsMigrator;
-  allowedTypes: string[];
-}
-
-export const repositoryFactoryProvider: SavedObjectRepositoryFactoryProvider = (
-  options: SavedObjectsRepositoryOptions
-) => {
-  const {
-    migrator,
-    typeRegistry,
-    includedHiddenTypes
- } = options;
- const allTypes = typeRegistry.getAllTypes().map((t) => t.name);
-  const serializer = new SavedObjectsSerializer(typeRegistry);
-  const visibleTypes = allTypes.filter((type) => !typeRegistry.isHidden(type));
-
-  const missingTypeMappings = includedHiddenTypes.filter((type) => !allTypes.includes(type));
-  if (missingTypeMappings.length > 0) {
-    throw new Error(
-      `Missing mappings for saved objects types: '${missingTypeMappings.join(', ')}'`
-    );
-  }
-
-  const allowedTypes = [...new Set(visibleTypes.concat(includedHiddenTypes))];
-
-  return new PostgresRepository({
-    typeRegistry,
-    serializer,
-    migrator,
-    allowedTypes,
-  });
-}
-
 export class PostgresRepository implements ISavedObjectsRepository {
     public _registry: ISavedObjectTypeRegistry;
     private postgresClient: any;
@@ -102,9 +66,8 @@ export class PostgresRepository implements ISavedObjectsRepository {
     private _allowedTypes: string[];
     private _migrator: IOpenSearchDashboardsMigrator;
     public static metaSrorageConfig?: MetaStorageConfigType;
-
+    public applicationId?: string | undefined;
     
-
     public static createRepository(
       migrator: IOpenSearchDashboardsMigrator,
       typeRegistry: SavedObjectTypeRegistry,
@@ -131,7 +94,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
       });
     }
     
-    constructor(options: PostgresRepositoryOptions) {
+    constructor(options: RepositoryOptions) {
       const {
         typeRegistry,
         serializer,
@@ -169,6 +132,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
       options: SavedObjectsCreateOptions = {}
     ): Promise<SavedObject<T>> {
         console.log(`Inside PostgresRepository create`);
+        console.log(`application id = ${this.applicationId}`);
         const id = options.id;
         const overwrite = options.overwrite;
         // const refresh = options.refresh; // We don't need refresh for SQL operation.
@@ -182,12 +146,13 @@ export class PostgresRepository implements ISavedObjectsRepository {
         }
 
         const raw = this.getSavedObjectRawDoc(type, attributes, options, namespace, existingNamespaces);
-        const query = `INSERT INTO metadatastore(id, type, version, attributes, reference, migrationversion, namespaces, originid, updated_at) 
+        const query = `INSERT INTO metadatastore(id, type, version, attributes, reference, migrationversion, 
+        namespaces, originid, updated_at, application_id) 
         VALUES('${raw._id}', '${type}', '${version ?? ''}', '${JSON.stringify(raw._source)}', 
         '${JSON.stringify(raw._source.references)}', 
         '${JSON.stringify(raw._source.migrationVersion ?? {})}', 
         ${raw._source.namespaces ? `ARRAY[${raw._source.namespaces}]` : `'{}'`},
-        '${raw._source.originId ?? ''}', '${raw._source.updated_at}')`;
+        '${raw._source.originId ?? ''}', '${raw._source.updated_at}', '${this.applicationId ?? 'default'}')`;
         // ToDo: Decide if you want to keep raw._source or raw._source[type] in attributes field.
         // Above decision to be made after we decide on search functionality.
         await this.postgresClient
@@ -213,7 +178,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
         const namespace = normalizeNamespace(options.namespace);
         // ToDo: Do validation of objects as we do in OpenSearch.
         // For sake of POC, we are just inserting all object in a loop.
-        const query = `INSERT INTO metadatastore(id, type, version, attributes, reference, migrationversion, namespaces, originid, updated_at) VALUES `;
+        const query = `INSERT INTO metadatastore(id, type, version, attributes, reference, migrationversion, namespaces, originid, updated_at, application_id) VALUES `;
 
         const expectedBulkResult = objects.map((object) => {
           // const refresh = options.refresh; // We don't need refresh for SQL operation.
@@ -231,7 +196,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
         '${JSON.stringify(raw._source.references)}',
         '${JSON.stringify(raw._source.migrationVersion ?? {})}',
         ${raw._source.namespaces ? `ARRAY[${raw._source.namespaces}]` : `'{}'`},
-        '${raw._source.originId ?? ''}', '${raw._source.updated_at}')`;
+        '${raw._source.originId ?? ''}', '${raw._source.updated_at}', '${this.applicationId ?? 'default'}')`;
           // ToDo: Decide if you want to keep raw._source or raw._source[type] in attributes field.
           // Refactor code to insert all rows in single transaction.
           this.postgresClient
@@ -299,7 +264,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
                   namespace,
                   type,
                   id
-                )}'`
+                )}' and application_id='${this.applicationId ?? 'default'}'`
               )
               .then((res: any) => {
                 results = res.rows[0];
@@ -331,7 +296,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
         // ToDo: Validation same as we are doing in case .kibana index
         const namespace = normalizeNamespace(options.namespace);
         const rawId = this._serializer.generateRawId(namespace, type, id);
-        const deleteQuery = `DELETE FROM metadatastore WHERE id='${rawId}'`;
+        const deleteQuery = `DELETE FROM metadatastore WHERE id='${rawId}' and application_id='${this.applicationId ?? 'default'}'`;
         await this.postgresClient
           .query(`${deleteQuery}`)
           .then(() => {
@@ -355,7 +320,8 @@ export class PostgresRepository implements ISavedObjectsRepository {
     
         // ToDo: Handle the case when the type is namespace-agnostic (global)
         // ToDo: Find out what needs to be done when namespace doesn't exists or empty. Do we want to delete saved object?
-        const selectQuery = `select id, namespaces from metadatastore where ${namespace}=ANY(namespaces);`;
+        const selectQuery = `select id, namespaces from metadatastore 
+        where ${namespace}=ANY(namespaces) and application_id='${this.applicationId ?? 'default'}'`;
         let results: any;
         await this.postgresClient
           .query(selectQuery)
@@ -373,7 +339,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
             const updateQuery = `UPDATE metadatastore SET 
             namespaces=${newNamespace ? `ARRAY[${newNamespace}]` : `'{}'`},
             updated_at='${time}'
-            WHERE id='${row.id}'`;
+            WHERE id='${row.id}' and application_id='${this.applicationId ?? 'default'}'`;
             this.postgresClient
               .query(updateQuery)
               .then((res: any) => {
@@ -388,6 +354,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
    
     async find<T = unknown>(options: SavedObjectsFindOptions): Promise<SavedObjectsFindResponse<T>> {
         console.log(`Inside PostgresRepository find`);
+        console.log(`application id = ${this.applicationId}`);
         const {
           search,
           searchFields,
@@ -395,6 +362,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
           perPage = FIND_DEFAULT_PER_PAGE,
           fields,
         } = options;
+        console.log(`options = ${JSON.stringify(options)}`);
     
         this.validateTypeAndNamespace(options);
         const allowedTypes = this.getAllowedTypes(options);
@@ -410,7 +378,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
                   "migrationversion", "namespaces", "originid", "updated_at" 
                   FROM "metadatastore" where type IN(${allowedTypes
                     .map((type) => `'${type}'`)
-                    .join(',')})`;
+                    .join(',')}) and application_id='${this.applicationId ?? 'default'}'`;
     
         let buildLikeExpr: string | undefined = '';
         if (search) {
@@ -477,7 +445,8 @@ export class PostgresRepository implements ISavedObjectsRepository {
           const { type, id } = object;
           const query = `SELECT "id", "type", "version", "attributes", "reference", 
           "migrationversion", "namespaces", "originid", "updated_at" 
-          FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}'`;
+          FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}' 
+          and application_id='${this.applicationId ?? 'default'}'`;
 
           let results: any;
           await this.postgresClient
@@ -537,63 +506,65 @@ export class PostgresRepository implements ISavedObjectsRepository {
       id: string,
       options: SavedObjectsBaseOptions = {}
     ): Promise<SavedObject<T>> {
-        console.log(`Inside PostgresRepository get`);
-        this.validateType(type);
+      console.log(`Inside PostgresRepository get`);
+      console.log(`application id = ${this.applicationId}`);
+      this.validateType(type);
 
-    const namespace = normalizeNamespace(options.namespace);
+      const namespace = normalizeNamespace(options.namespace);
 
-    // ToDo: Find out - 1. Why we are passing index to get api? 2. What is index for type? 3. whta is the index value in case of opensearch?
-    /*
-    const { body, statusCode } = await this.client.get<SavedObjectsRawDocSource>(
-      {
-        id: this._serializer.generateRawId(namespace, type, id),
-        index: this.getIndexForType(type),
-      },
-      { ignore: [404] }
-    );
-    */
-    // ToDo: Include index for type in where clause if needed.
-    const query = `SELECT "id", "type", "version", "attributes", "reference", 
-    "migrationversion", "namespaces", "originid", "updated_at" 
-    FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}'`;
+      // ToDo: Find out - 1. Why we are passing index to get api? 2. What is index for type? 3. whta is the index value in case of opensearch?
+      /*
+      const { body, statusCode } = await this.client.get<SavedObjectsRawDocSource>(
+        {
+          id: this._serializer.generateRawId(namespace, type, id),
+          index: this.getIndexForType(type),
+        },
+        { ignore: [404] }
+      );
+      */
+      // ToDo: Include index for type in where clause if needed.
+      const query = `SELECT "id", "type", "version", "attributes", "reference", 
+      "migrationversion", "namespaces", "originid", "updated_at" 
+      FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}'
+      and application_id='${this.applicationId ?? 'default'}'`;
 
-    let results: any;
-    await this.postgresClient
-      .query(query)
-      .then((res: any) => {
-        results = res.rows[0];
-      })
-      .catch((error: any) => {
-        throw new Error(error);
-      });
+      let results: any;
+      await this.postgresClient
+        .query(query)
+        .then((res: any) => {
+          results = res.rows[0];
+        })
+        .catch((error: any) => {
+          throw new Error(error);
+        });
 
-    // ToDo: Find out - 1. Do we need to handle index not found?
-    // 2. Implement rawDocExistsInNamespace for RDS. We need convet attributes column to raw saved object and pass it existing rawDocExistsInNamespace.
-    if (!results || results.length === 0)
-      throw SavedObjectsErrorHelpers.createGenericNotFoundError(type, id);
+      // ToDo: Find out - 1. Do we need to handle index not found?
+      // 2. Implement rawDocExistsInNamespace for RDS. We need convet attributes column to raw saved object and pass it existing rawDocExistsInNamespace.
+      if (!results || results.length === 0)
+        throw SavedObjectsErrorHelpers.createGenericNotFoundError(type, id);
 
-    // const temp = results.attributes;
+      // const temp = results.attributes;
 
-    const originId = results.originid;
-    const updatedAt = results.updated_at;
+      const originId = results.originid;
+      const updatedAt = results.updated_at;
 
-    let namespaces: string[] = [];
-    if (!this._registry.isNamespaceAgnostic(type)) {
-      namespaces = results.namespaces ?? [SavedObjectsUtils.namespaceIdToString(results.namespace)];
-    }
+      let namespaces: string[] = [];
+      if (!this._registry.isNamespaceAgnostic(type)) {
+        namespaces = results.namespaces ?? [SavedObjectsUtils.namespaceIdToString(results.namespace)];
+      }
 
-    // Todo: Research about version parameter
-    return {
-      id,
-      type,
-      namespaces,
-      ...(originId && { originId }),
-      ...(updatedAt && { updated_at: updatedAt }),
-      // version: encodeHitVersion(body),
-      attributes: results.attributes[type],
-      references: results.references || [],
-      migrationVersion: results.migrationVersion,
-    };
+      // Todo: Research about version parameter
+      return {
+        id,
+        type,
+        namespaces,
+        ...(originId && { originId }),
+        ...(updatedAt && { updated_at: updatedAt }),
+        // version: encodeHitVersion(body),
+        attributes: results.attributes[type],
+        references: results.references || [],
+        migrationVersion: results.migrationVersion,
+      };
     }
    
     async update<T = unknown>(
@@ -610,7 +581,8 @@ export class PostgresRepository implements ISavedObjectsRepository {
     const time = this._getCurrentTime();
 
     const selectQuery = `SELECT "originid", "attributes" , "namespaces" 
-    FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}'`;
+    FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}'
+    and application_id='${this.applicationId ?? 'default'}'`;
 
     let results: any;
     await this.postgresClient
@@ -630,7 +602,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
       const updateQuery = `UPDATE metadatastore SET 
         attributes='${JSON.stringify(results)}', 
         updated_at='${time}', reference='${JSON.stringify(references)}' 
-        WHERE id='${this._serializer.generateRawId(namespace, type, id)}'`;
+        WHERE id='${this._serializer.generateRawId(namespace, type, id)}' and application_id='${this.applicationId ?? 'default'}'`;
       await this.postgresClient
         .query(updateQuery)
         .then(() => {
@@ -683,7 +655,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
     const updateQuery = `UPDATE metadatastore SET 
       namespaces=${newNamespaces ? `ARRAY[${newNamespaces}]` : `'{}'`},
       updated_at='${time}'
-      WHERE id='${rawId}'`;
+      WHERE id='${rawId}' and application_id='${this.applicationId ?? 'default'}'`;
     this.postgresClient
       .query(updateQuery)
       .then(() => {
@@ -724,7 +696,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
       const updateQuery = `UPDATE metadatastore SET 
         namespaces=${remainingNamespaces ? `ARRAY[${remainingNamespaces}]` : `'{}'`},
         updated_at='${time}'
-        WHERE id='${rawId}'`;
+        WHERE id='${rawId}' and application_id='${this.applicationId ?? 'default'}'`;
       this.postgresClient
         .query(updateQuery)
         .then(() => {
@@ -735,7 +707,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
         });
       return { namespaces: doc.namespaces };
     } else {
-      const deleteQuery = `DELETE FROM metadatastore WHERE id='${rawId}'`;
+      const deleteQuery = `DELETE FROM metadatastore WHERE id='${rawId}' and application_id='${this.applicationId ?? 'default'}'`;
       await this.postgresClient
         .query(`${deleteQuery}`)
         .then(() => {
@@ -763,7 +735,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
       const { type, id, attributes, references } = object;
 
       const selectQuery = `SELECT "originid", "attributes" , "namespaces" 
-      FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}'`;
+      FROM "metadatastore" where id='${this._serializer.generateRawId(namespace, type, id)}' and application_id='${this.applicationId ?? 'default'}'`;
 
       let results: any;
       let existingAttributes: any;
@@ -785,7 +757,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
         const updateQuery = `UPDATE metadatastore SET 
           attributes='${JSON.stringify(existingAttributes)}', 
           updated_at='${time}', reference='${JSON.stringify(references)}' 
-          WHERE id='${this._serializer.generateRawId(namespace, type, id)}'`;
+          WHERE id='${this._serializer.generateRawId(namespace, type, id)}' and application_id='${this.applicationId ?? 'default'}'`;
         this.postgresClient
           .query(updateQuery)
           .then(() => {
@@ -854,7 +826,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
       existingNamespaces
     );
 
-    const selectQuery = `SELECT "attributes" FROM "metadatastore" where id='${raw._id}'`;
+    const selectQuery = `SELECT "attributes" FROM "metadatastore" where id='${raw._id}' and application_id='${this.applicationId ?? 'default'}'`;
 
     let attributes: any;
     await this.postgresClient
@@ -875,7 +847,8 @@ export class PostgresRepository implements ISavedObjectsRepository {
         attributes[type][counterFieldName] += 1;
       }
 
-      const updateQuery = `UPDATE metadatastore SET attributes=${attributes}, updated_at=${time} WHERE id=${raw._id}`;
+      const updateQuery = `UPDATE metadatastore SET attributes=${attributes}, updated_at=${time} 
+      WHERE id=${raw._id} and application_id='${this.applicationId ?? 'default'}'`;
       await this.postgresClient
         .query(updateQuery)
         .then((res: any) => {
@@ -886,12 +859,12 @@ export class PostgresRepository implements ISavedObjectsRepository {
         });
     } else {
       raw._source[type][counterFieldName] = 1;
-      const insertQuery = `INSERT INTO metadatastore(id, type, attributes, reference, migrationversion, namespaces, originid, updated_at) 
+      const insertQuery = `INSERT INTO metadatastore(id, type, attributes, reference, migrationversion, namespaces, originid, updated_at, application_id) 
         VALUES('${raw._id}', '${type}', '${JSON.stringify(raw._source)}', 
         '${JSON.stringify(raw._source.references)}', 
         '${JSON.stringify(raw._source.migrationVersion ?? {})}', 
         '${JSON.stringify(raw._source.namespaces ?? [])}',
-        '${raw._source.originId ?? ''}', '${raw._source.updated_at}')`;
+        '${raw._source.originId ?? ''}', '${raw._source.updated_at}', '${this.applicationId ?? 'default'}')`;
       // ToDo: Decide if you want to keep raw._source or raw._source[type] in attributes field.
       await this.postgresClient
         .query(insertQuery)
@@ -1075,7 +1048,7 @@ export class PostgresRepository implements ISavedObjectsRepository {
         }
       }
 
-      /**
+  /**
    * Check to ensure that a raw document exists in a namespace. If the document is not a multi-namespace type, then this returns `true` as
    * we rely on the guarantees of the document ID format. If the document is a multi-namespace type, this checks to ensure that the
    * document's `namespaces` value includes the string representation of the given namespace.
