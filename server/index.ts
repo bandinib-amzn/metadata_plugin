@@ -15,7 +15,7 @@ export const metaStorageConfig = {
       type: schema.string({
         defaultValue: 'opensearch',
         validate(value: string) {
-          const supportedDbType = ['postgres', 'opensearch'];
+          const supportedDbType = ['postgres', 'opensearch', 'dynamodb'];
  
           if (!supportedDbType.includes(value.toLowerCase())) {
             throw new Error(

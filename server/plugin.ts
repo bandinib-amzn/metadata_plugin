@@ -15,6 +15,7 @@ import { MetadataPluginSetup, MetadataPluginStart } from './types';
 import { defineRoutes } from './routes';
 import { MetaStorageConfigType } from '.';
 import { PostgresRepository } from './postgres_repository';
+import { DynamoDBRepository } from './dynamo_db_repositoty';
 import { SavedObjectRepositoryFactoryProvider, SavedObjectsRepositoryOptions } from 'src/core/server/saved_objects/service/lib/scoped_client_provider';
 
 export class MetadataPlugin implements Plugin<MetadataPluginSetup, MetadataPluginStart> {
@@ -57,13 +58,23 @@ export class MetadataPlugin implements Plugin<MetadataPluginSetup, MetadataPlugi
     
       const allowedTypes = [...new Set(visibleTypes.concat(includedHiddenTypes))];
 
-      PostgresRepository.metaSrorageConfig = config;
+      if(config.config.type == 'dynamodb'){
+        return new DynamoDBRepository({
+          typeRegistry,
+          serializer,
+          migrator,
+          allowedTypes,
+        });
+      }
+      else {
+        PostgresRepository.metaSrorageConfig = config;
         return new PostgresRepository({
           typeRegistry,
           serializer,
           migrator,
           allowedTypes,
         });
+      }
     }
 
     core.savedObjects.registerRepositoryFactoryProvider(repositoryFactoryProvider);
